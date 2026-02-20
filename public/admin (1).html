@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CryptoxCore Admin Panel</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23111827'/><text x='50' y='72' text-anchor='middle' font-size='55' font-weight='900' fill='%234361EE'>A</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#0F1117;color:#E5E7EB}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#1A1D2E}::-webkit-scrollbar-thumb{background:#374151;border-radius:3px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#4361EE!important;box-shadow:0 0 0 3px rgba(67,97,238,.15)!important}
+button{cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}button:hover{opacity:.9}button:active{transform:scale(.98)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useCallback}=React;
+
+const API=async(path,opts={})=>{
+  const tk=localStorage.getItem("cxc_admin_token");
+  const h={"Content-Type":"application/json"};
+  if(tk)h["Authorization"]="Bearer "+tk;
+  const r=await fetch("/api"+path,{...opts,headers:{...h,...(opts.headers||{})}});
+  const d=await r.json();
+  if(!r.ok)throw new Error(d.error||"Request failed");
+  return d;
+};
+
+const C={bg:"#0F1117",bg2:"#1A1D2E",bg3:"#242838",bd:"#2D3148",bd2:"#374151",pr:"#4361EE",prL:"#4361EE20",gn:"#10B981",gnL:"#10B98118",rd:"#EF4444",rdL:"#EF444418",am:"#F59E0B",amL:"#F59E0B18",tx:"#E5E7EB",tx2:"#9CA3AF",tx3:"#6B7280"};
+const Spin=({sz=20,c=C.pr})=><div style={{display:"inline-flex"}}><div style={{width:sz,height:sz,border:`2px solid ${C.bd}`,borderTopColor:c,borderRadius:"50%",animation:"spin .6s linear infinite"}}/></div>;
+const fX=n=>Math.round(n).toLocaleString("fr-CM")+" XAF";
+const tA=d=>{if(!d)return"";const x=Date.now()-new Date(d).getTime();return x<6e4?"Just now":x<36e5?Math.floor(x/6e4)+"m ago":x<864e5?Math.floor(x/36e5)+"h ago":new Date(d).toLocaleDateString("en-GB",{day:"numeric",month:"short"});};
+
+function AdminApp(){
+  const[user,setUser]=useState(null);const[loading,setLoading]=useState(true);
+  const[email,setEmail]=useState("");const[pw,setPw]=useState("");const[err,setErr]=useState("");const[logging,setLogging]=useState(false);
+  const[pg,setPg]=useState("dashboard");
+  const[stats,setStats]=useState(null);const[users,setUsers]=useState([]);const[txns,setTxns]=useState([]);const[tickets,setTickets]=useState([]);const[cryptoDeps,setCryptoDeps]=useState([]);
+  const[selUser,setSelUser]=useState(null);const[selTicket,setSelTicket]=useState(null);const[reply,setReply]=useState("");const[replyStatus,setReplyStatus]=useState("pending");
+  const[tktFilter,setTktFilter]=useState("all");const[tktSearch,setTktSearch]=useState("");const[tktSort,setTktSort]=useState("newest");
+  const[balAction,setBalAction]=useState("add");const[balAmt,setBalAmt]=useState("");
+  const[toast,setToast]=useState(null);
+  const[settings,setSettings]=useState({});const[settingKey,setSettingKey]=useState("");const[settingVal,setSettingVal]=useState("");
+
+  const sT=(m,t="ok")=>{setToast({m,t});setTimeout(()=>setToast(null),3000);};
+
+  // Auto login
+  useEffect(()=>{const tk=localStorage.getItem("cxc_admin_token");if(!tk){setLoading(false);return;}
+    API("/auth/me").then(d=>{if(["no-reply@cryptoxcore.com"].includes(d.user.email)){setUser(d.user);}else{localStorage.removeItem("cxc_admin_token");}}).catch(()=>{localStorage.removeItem("cxc_admin_token");}).finally(()=>setLoading(false));
+  },[]);
+
+  // Load data on login
+  useEffect(()=>{if(!user)return;loadAll();},[user]);
+
+  const loadAll=async()=>{
+    try{const s=await API("/admin/stats");setStats(s);}catch{}
+    try{const u=await API("/admin/users");setUsers(u.users||[]);}catch{}
+    try{const t=await API("/admin/transactions");setTxns(t.transactions||[]);}catch{}
+    try{const tk=await API("/admin/tickets");setTickets(tk.tickets||[]);}catch{}
+    try{const cd=await API("/admin/crypto-deposits");setCryptoDeps(cd.deposits||[]);}catch{}
+    try{const st=await API("/admin/settings");setSettings(st.settings||{});}catch{}
+  };
+
+  const doLogin=async()=>{setErr("");setLogging(true);try{
+    const d=await API("/auth/login",{method:"POST",body:JSON.stringify({email:email.trim(),password:pw})});
+    if(!["no-reply@cryptoxcore.com"].includes(d.user.email)){setErr("Not an admin account");setLogging(false);return;}
+    localStorage.setItem("cxc_admin_token",d.token);setUser(d.user);
+  }catch(e){setErr(e.message);}setLogging(false);};
+
+  const iS={width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.bd}`,background:C.bg2,color:C.tx,fontSize:14};
+  const bP={border:"none",fontWeight:600,borderRadius:8,fontSize:13,padding:"10px 20px",background:C.pr,color:"#fff"};
+  const card={background:C.bg2,borderRadius:12,border:`1px solid ${C.bd}`,overflow:"hidden"};
+
+  if(loading)return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg}}><Spin sz={36}/></div>);
+
+  // LOGIN
+  if(!user)return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg}}>
+      <div style={{width:400,padding:40,background:C.bg2,borderRadius:16,border:`1px solid ${C.bd}`}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{width:56,height:56,borderRadius:14,background:"linear-gradient(135deg,#4361EE,#7C3AED)",margin:"0 auto 16px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:900,color:"#fff"}}>A</div>
+          <h1 style={{fontSize:22,fontWeight:800}}>Admin Panel</h1>
+          <p style={{color:C.tx3,fontSize:13,marginTop:4}}>CryptoxCore Management Console</p>
+        </div>
+        <div style={{marginBottom:14}}><label style={{fontSize:12,fontWeight:600,color:C.tx2,marginBottom:6,display:"block"}}>Email</label><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="no-reply@cryptoxcore.com" style={iS}/></div>
+        <div style={{marginBottom:20}}><label style={{fontSize:12,fontWeight:600,color:C.tx2,marginBottom:6,display:"block"}}>Password</label><input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Password" style={iS} onKeyDown={e=>{if(e.key==="Enter")doLogin();}}/></div>
+        {err&&<div style={{color:C.rd,fontSize:13,marginBottom:12,padding:"8px 12px",borderRadius:8,background:C.rdL}}>{err}</div>}
+        <button onClick={doLogin} disabled={logging} style={{...bP,width:"100%",padding:12,fontSize:15,opacity:logging?.7:1}}>{logging?"Signing in...":"Sign In"}</button>
+        <p style={{textAlign:"center",marginTop:20,fontSize:12,color:C.tx3}}>Only authorized administrators can access this panel</p>
+      </div>
+    </div>
+  );
+
+  // NAV items
+  const NAV=[
+    {id:"dashboard",l:"Dashboard",i:"📊"},
+    {id:"users",l:"Users",i:"👥"},
+    {id:"transactions",l:"Transactions",i:"💰"},
+    {id:"tickets",l:"Support Tickets",i:"🎫"},
+    {id:"crypto",l:"Crypto Deposits",i:"₿"},
+    {id:"settings",l:"Platform Settings",i:"⚙️"},
+  ];
+
+  // SIDEBAR
+  const Sidebar=()=>(
+    <aside style={{width:240,background:C.bg2,borderRight:`1px solid ${C.bd}`,position:"fixed",top:0,left:0,bottom:0,display:"flex",flexDirection:"column",zIndex:50}}>
+      <div style={{padding:"20px 20px 16px",borderBottom:`1px solid ${C.bd}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#4361EE,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"#fff"}}>A</div>
+          <div><div style={{fontSize:14,fontWeight:800}}>CryptoxCore</div><div style={{fontSize:10,color:C.tx3,fontWeight:600,textTransform:"uppercase",letterSpacing:"1px"}}>Admin Panel</div></div>
+        </div>
+      </div>
+      <nav style={{flex:1,padding:"12px 10px",overflowY:"auto"}}>
+        {NAV.map(n=>{const a=pg===n.id;return(
+          <div key={n.id} onClick={()=>{setPg(n.id);setSelUser(null);setSelTicket(null);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,cursor:"pointer",marginBottom:2,fontSize:13,fontWeight:a?600:400,color:a?"#fff":C.tx2,background:a?C.prL:"transparent"}}>
+            <span>{n.i}</span>{n.l}
+          </div>
+        );})}
+      </nav>
+      <div style={{padding:"14px 16px",borderTop:`1px solid ${C.bd}`}}>
+        <div style={{fontSize:12,fontWeight:600,marginBottom:4}}>{user.fullName}</div>
+        <div style={{fontSize:11,color:C.tx3,marginBottom:8}}>{user.email}</div>
+        <div onClick={()=>{localStorage.removeItem("cxc_admin_token");setUser(null);}} style={{fontSize:12,color:C.rd,cursor:"pointer",fontWeight:600}}>← Logout</div>
+      </div>
+    </aside>
+  );
+
+  // STAT CARD
+  const Stat=({label,value,color,icon})=>(
+    <div style={{...card,padding:"20px 24px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div><div style={{fontSize:12,color:C.tx3,fontWeight:500,marginBottom:6}}>{label}</div><div style={{fontSize:24,fontWeight:800,color:color||C.tx}}>{value}</div></div>
+        <div style={{fontSize:24}}>{icon}</div>
+      </div>
+    </div>
+  );
+
+  // DASHBOARD
+  const DashPage=()=>{if(!stats)return<div style={{padding:40,textAlign:"center"}}><Spin sz={30}/></div>;return(
+    <div style={{animation:"fadeIn .3s ease"}}>
+      <h2 style={{fontSize:24,fontWeight:800,marginBottom:4}}>Dashboard</h2>
+      <p style={{color:C.tx3,fontSize:13,marginBottom:24}}>Platform overview and key metrics</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
+        <Stat label="Total Users" value={stats.totalUsers} icon="👥" color={C.pr}/>
+        <Stat label="New (7d)" value={stats.recentUsers} icon="📈" color={C.gn}/>
+        <Stat label="Total Balance" value={fX(stats.totalBal)} icon="💰" color={C.am}/>
+        <Stat label="Open Tickets" value={stats.openTickets} icon="🎫" color={stats.openTickets>0?C.rd:C.gn}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
+        <Stat label="Total Transactions" value={stats.totalTx} icon="📊"/>
+        <Stat label="Today's Transactions" value={stats.todayTx} icon="📅" color={C.pr}/>
+        <Stat label="Total Deposits" value={fX(stats.totalDeposits)} icon="⬇️" color={C.gn}/>
+        <Stat label="Total Withdrawals" value={fX(stats.totalWithdraws)} icon="⬆️" color={C.rd}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:24}}>
+        <Stat label="Buy Orders" value={stats.totalBuys} icon="🟢" color={C.gn}/>
+        <Stat label="Sell Orders" value={stats.totalSells} icon="🔴" color={C.rd}/>
+        <Stat label="Crypto Deposits" value={stats.cryptoDeps} icon="₿" color={C.am}/>
+        <Stat label="Pending Deposits" value={stats.pendingDeps} icon="⏳" color={stats.pendingDeps>0?C.am:C.gn}/>
+      </div>
+      {/* Recent activity */}
+      <div style={card}>
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.bd}`}}><h3 style={{fontSize:15,fontWeight:700}}>Recent Transactions</h3></div>
+        {txns.slice(0,10).map((tx,i)=>(
+          <div key={i} style={{padding:"10px 20px",borderBottom:`1px solid ${C.bd}20`,display:"flex",alignItems:"center",gap:12,fontSize:13}}>
+            <span style={{width:28,height:28,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,background:tx.type==="deposit"?C.gnL:tx.type==="buy"?C.prL:C.rdL,color:tx.type==="deposit"?C.gn:tx.type==="buy"?C.pr:C.rd}}>{tx.type==="deposit"?"↓":tx.type==="buy"?"+":"↑"}</span>
+            <div style={{flex:1}}><span style={{fontWeight:600}}>{tx.full_name}</span><span style={{color:C.tx3}}> · {tx.type} · {tx.coin_symbol||""}</span></div>
+            <span style={{fontWeight:600}}>{fX(tx.amount_xaf||0)}</span>
+            <span style={{fontSize:11,color:C.tx3}}>{tA(tx.created_at)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );};
+
+  // USERS PAGE
+  const UsersPage=()=>{
+    if(selUser)return(<UserDetail/>);
+    return(<div style={{animation:"fadeIn .3s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:24}}><div><h2 style={{fontSize:24,fontWeight:800}}>Users</h2><p style={{color:C.tx3,fontSize:13}}>{users.length} registered users</p></div><button onClick={loadAll} style={bP}>↻ Refresh</button></div>
+      <div style={card}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.bd}`,textAlign:"left"}}>
+            {["ID","Name","Email","Phone","Balance","Joined","Verified",""].map(h=><th key={h} style={{padding:"12px 16px",fontWeight:600,color:C.tx3,fontSize:12}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{users.map(u=>(
+            <tr key={u.id} style={{borderBottom:`1px solid ${C.bd}20`}} onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background=""}>
+              <td style={{padding:"10px 16px",fontWeight:600}}>#{u.id}</td>
+              <td style={{padding:"10px 16px"}}>{u.full_name}</td>
+              <td style={{padding:"10px 16px",color:C.tx2}}>{u.email}</td>
+              <td style={{padding:"10px 16px",color:C.tx3}}>{u.phone}</td>
+              <td style={{padding:"10px 16px",fontWeight:700}}>{fX(u.balance_xaf)}</td>
+              <td style={{padding:"10px 16px",color:C.tx3,fontSize:12}}>{tA(u.created_at)}</td>
+              <td style={{padding:"10px 16px"}}><span style={{padding:"3px 8px",borderRadius:5,fontSize:10,fontWeight:700,background:u.is_verified?C.gnL:C.amL,color:u.is_verified?C.gn:C.am}}>{u.is_verified?"Verified":"Pending"}</span></td>
+              <td style={{padding:"10px 16px"}}><button onClick={()=>setSelUser(u)} style={{...bP,padding:"6px 12px",fontSize:11}}>View</button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>);
+  };
+
+  // USER DETAIL
+  const UserDetail=()=>{
+    const u=selUser;
+    const adjustBal=async()=>{if(!balAmt)return;try{const d=await API(`/admin/users/${u.id}/balance`,{method:"POST",body:JSON.stringify({amount:balAmt,action:balAction})});sT(d.message);setBalAmt("");loadAll();setSelUser({...u,balance_xaf:d.balance});}catch(e){sT(e.message,"err");}};
+    const toggleVerify=async()=>{try{const act=u.is_verified?"unverify":"verify";await API(`/admin/users/${u.id}/status`,{method:"POST",body:JSON.stringify({action:act})});sT(`User ${act}d`);setSelUser({...u,is_verified:u.is_verified?0:1});loadAll();}catch(e){sT(e.message,"err");}};
+    return(<div style={{animation:"fadeIn .3s ease"}}>
+      <div onClick={()=>setSelUser(null)} style={{cursor:"pointer",color:C.pr,fontSize:13,fontWeight:600,marginBottom:16}}>← Back to Users</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+        <div style={{...card,padding:24}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+            <div style={{width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,#4361EE,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:800,color:"#fff"}}>{u.full_name.charAt(0)}</div>
+            <div><div style={{fontSize:18,fontWeight:800}}>{u.full_name}</div><div style={{fontSize:13,color:C.tx3}}>{u.email} · {u.phone}</div></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div style={{padding:12,borderRadius:8,background:C.bg3}}><div style={{fontSize:11,color:C.tx3}}>Balance</div><div style={{fontSize:16,fontWeight:800,color:C.gn}}>{fX(u.balance_xaf)}</div></div>
+            <div style={{padding:12,borderRadius:8,background:C.bg3}}><div style={{fontSize:11,color:C.tx3}}>Status</div><div style={{fontSize:14,fontWeight:700,color:u.is_verified?C.gn:C.am}}>{u.is_verified?"Verified":"Pending"}</div></div>
+          </div>
+          <button onClick={toggleVerify} style={{...bP,width:"100%",marginTop:16,background:u.is_verified?C.am:C.gn}}>{u.is_verified?"Revoke Verification":"Verify User"}</button>
+        </div>
+        <div style={{...card,padding:24}}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:16}}>Adjust Balance</h3>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>{["add","subtract","set"].map(a=>(<button key={a} onClick={()=>setBalAction(a)} style={{...bP,flex:1,background:balAction===a?C.pr:C.bg3,fontSize:12,textTransform:"capitalize"}}>{a}</button>))}</div>
+          <input type="number" value={balAmt} onChange={e=>setBalAmt(e.target.value)} placeholder="Amount (XAF)" style={{...iS,marginBottom:12}}/>
+          <button onClick={adjustBal} style={{...bP,width:"100%",background:balAction==="subtract"?C.rd:C.gn}}>{balAction==="set"?"Set Balance":`${balAction==="add"?"Add to":"Subtract from"} Balance`}</button>
+        </div>
+      </div>
+    </div>);
+  };
+
+  // TRANSACTIONS PAGE
+  const TxPage=()=>(
+    <div style={{animation:"fadeIn .3s ease"}}>
+      <h2 style={{fontSize:24,fontWeight:800,marginBottom:4}}>All Transactions</h2>
+      <p style={{color:C.tx3,fontSize:13,marginBottom:24}}>{txns.length} total transactions</p>
+      <div style={card}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.bd}`}}>
+            {["Type","User","Coin","Amount","XAF","Status","Date"].map(h=><th key={h} style={{padding:"10px 16px",fontWeight:600,color:C.tx3,fontSize:12,textAlign:"left"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{txns.map((tx,i)=>{
+            const typeCol={deposit:C.gn,buy:C.pr,sell:C.rd,withdraw:C.am,crypto_dep:C.gn,crypto_wd:C.rd};
+            return(<tr key={i} style={{borderBottom:`1px solid ${C.bd}15`}}>
+              <td style={{padding:"10px 16px"}}><span style={{padding:"3px 8px",borderRadius:5,fontSize:10,fontWeight:700,background:(typeCol[tx.type]||C.tx3)+"18",color:typeCol[tx.type]||C.tx3,textTransform:"uppercase"}}>{tx.type}</span></td>
+              <td style={{padding:"10px 16px"}}><div style={{fontWeight:600,fontSize:12}}>{tx.full_name}</div><div style={{fontSize:11,color:C.tx3}}>{tx.email}</div></td>
+              <td style={{padding:"10px 16px",fontWeight:600}}>{tx.coin_symbol||"—"}</td>
+              <td style={{padding:"10px 16px"}}>{tx.quantity?tx.quantity.toFixed(6):"—"}</td>
+              <td style={{padding:"10px 16px",fontWeight:700}}>{fX(tx.amount_xaf||0)}</td>
+              <td style={{padding:"10px 16px"}}><span style={{padding:"3px 8px",borderRadius:5,fontSize:10,fontWeight:600,background:C.gnL,color:C.gn}}>{tx.status}</span></td>
+              <td style={{padding:"10px 16px",fontSize:12,color:C.tx3}}>{tA(tx.created_at)}</td>
+            </tr>);
+          })}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // TICKETS PAGE
+  const TicketsPage=()=>{
+    const statusCol={open:C.am,pending:C.pr,"in-progress":"#8B5CF6",resolved:C.gn,closed:C.tx3};
+    const statusBg={open:"#F59E0B15",pending:"#4361EE15","in-progress":"#8B5CF615",resolved:"#10B98115",closed:"#6B728015"};
+    const catIco={general:"\u{1F4AC}",deposit:"\u{1F4B0}",withdrawal:"\u{1F4B8}",trading:"\u{1F4C8}",account:"\u{1F510}",technical:"\u2699\uFE0F"};
+    const catBg={general:"#4361EE12",deposit:"#F59E0B12",withdrawal:"#EF444412",trading:"#10B98112",account:"#8B5CF612",technical:"#6366F112"};
+    const priMap={deposit:1,withdrawal:1,account:2,trading:3,technical:3,general:4};
+
+    // Stats
+    const openCt=tickets.filter(t=>t.status==="open").length;
+    const pendCt=tickets.filter(t=>t.status==="pending"||t.status==="in-progress").length;
+    const resCt=tickets.filter(t=>t.status==="resolved"||t.status==="closed").length;
+    const urgentCt=tickets.filter(t=>(t.status==="open"||t.status==="pending")&&(t.category==="deposit"||t.category==="withdrawal")).length;
+
+    // Filter + search + sort
+    const filtered=tickets.filter(t=>{
+      if(tktFilter!=="all"&&t.status!==tktFilter)return false;
+      if(tktSearch){const q=tktSearch.toLowerCase();return(t.subject||"").toLowerCase().includes(q)||(t.userName||"").toLowerCase().includes(q)||(t.userEmail||"").toLowerCase().includes(q)||(t.category||"").toLowerCase().includes(q)||String(t.id).includes(q);}
+      return true;
+    }).sort((a,b)=>{
+      if(tktSort==="newest")return new Date(b.created_at||b.date||0)-new Date(a.created_at||a.date||0);
+      if(tktSort==="oldest")return new Date(a.created_at||a.date||0)-new Date(b.created_at||b.date||0);
+      if(tktSort==="priority")return(priMap[a.category]||5)-(priMap[b.category]||5);
+      return 0;
+    });
+
+    // Auto-refresh
+    useEffect(()=>{const iv=setInterval(()=>{API("/admin/tickets").then(d=>setTickets(d.tickets||[])).catch(()=>{});},12000);return()=>clearInterval(iv);},[]);
+
+    // DETAIL VIEW
+    if(selTicket){
+      const tk=selTicket;
+      const steps=["open","pending","in-progress","resolved"];
+      const curIdx=tk.status==="closed"?3:steps.indexOf(tk.status);
+      const doReply=async()=>{if(!reply.trim())return;try{await API(`/admin/tickets/${tk.id}/reply`,{method:"POST",body:JSON.stringify({message:reply.trim(),status:replyStatus})});sT("Reply sent!");setReply("");loadAll();setSelTicket({...tk,messages:[...(tk.messages||[]),{from:"admin",text:reply.trim(),date:new Date().toISOString()}],status:replyStatus});}catch(e){sT(e.message,"err");}};
+      const doClose=async()=>{try{await API(`/admin/tickets/${tk.id}/close`,{method:"POST"});sT("Ticket closed");setSelTicket({...tk,status:"closed"});loadAll();}catch(e){sT(e.message,"err");}};
+      const msgsRef=React.useRef(null);
+      useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight;},[tk.messages]);
+
+      return(<div style={{animation:"fadeIn .3s ease"}}>
+        {/* Back + Header */}
+        <div style={{display:"flex",alignItems:"flex-start",gap:14,marginBottom:20}}>
+          <div onClick={()=>setSelTicket(null)} style={{width:36,height:36,borderRadius:10,background:C.bg3,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .15s"}} onMouseEnter={e=>e.currentTarget.style.background=C.bd} onMouseLeave={e=>e.currentTarget.style.background=C.bg3}>
+            <svg width="18" height="18" fill="none" stroke={C.tx} strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          </div>
+          <div style={{flex:1}}>
+            <h2 style={{fontSize:20,fontWeight:800,marginBottom:6}}>{tk.subject}</h2>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={{padding:"3px 10px",borderRadius:6,fontSize:10,fontWeight:700,background:statusBg[tk.status]||C.bg3,color:statusCol[tk.status]||C.tx3,textTransform:"uppercase",letterSpacing:.3}}>{tk.status}</span>
+              <span style={{padding:"3px 10px",borderRadius:6,fontSize:10,fontWeight:600,background:catBg[tk.category]||C.bg3,color:C.tx2}}>{catIco[tk.category]||"\u{1F4AC}"} {tk.category}</span>
+              <span style={{fontSize:11,color:C.tx3}}>#{tk.id}</span>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {tk.status!=="closed"&&tk.status!=="resolved"&&<button onClick={doClose} style={{...bP,background:"transparent",border:`1px solid ${C.rd}40`,color:C.rd,fontSize:12,padding:"8px 16px"}}>Close Ticket</button>}
+          </div>
+        </div>
+
+        {/* User Info Card */}
+        <div style={{...card,padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,#4361EE,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:15,fontWeight:800,flexShrink:0}}>{(tk.userName||"U")[0].toUpperCase()}</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.tx}}>{tk.userName||"Unknown"}</div>
+            <div style={{fontSize:12,color:C.tx3}}>{tk.userEmail||"No email"}</div>
+          </div>
+          <div style={{fontSize:11,color:C.tx3}}>Created {tA(tk.created_at||tk.date)}</div>
+        </div>
+
+        {/* Progress Timeline */}
+        <div style={{...card,padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:0,overflowX:"auto"}}>
+          {steps.map((s,i)=>{
+            const isDone=i<curIdx,isAct=i===curIdx;
+            return(<React.Fragment key={s}>
+              {i>0&&<div style={{width:40,height:2,background:isDone||isAct?C.gn:C.bd,flexShrink:0}}/>}
+              <div style={{display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0,background:isDone?"linear-gradient(135deg,#10B981,#059669)":isAct?"linear-gradient(135deg,#4361EE,#5B6CF0)":C.bg3,color:isDone||isAct?"#fff":C.tx3,boxShadow:isAct?"0 0 0 4px #4361EE20":"none"}}>{isDone?"\u2713":(i+1)}</div>
+                <span style={{fontSize:11,fontWeight:600,color:isDone||isAct?C.tx:C.tx3}}>{s.charAt(0).toUpperCase()+s.slice(1).replace("-"," ")}</span>
+              </div>
+            </React.Fragment>);
+          })}
+        </div>
+
+        {/* Chat */}
+        <div style={card}>
+          <div ref={msgsRef} style={{maxHeight:400,overflowY:"auto",padding:20,WebkitOverflowScrolling:"touch"}}>
+            {(tk.messages||[]).map((msg,i)=>{const isA=msg.from==="admin";return(
+              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:isA?"flex-end":"flex-start",marginBottom:16}}>
+                <div style={{maxWidth:"78%",padding:"12px 16px",fontSize:13,lineHeight:1.6,wordWrap:"break-word",borderRadius:isA?"16px 4px 16px 16px":"4px 16px 16px 16px",background:isA?"linear-gradient(135deg,#4361EE,#5B6CF0)":C.bg3,color:isA?"#fff":C.tx}}>{msg.text}</div>
+                <div style={{fontSize:11,color:C.tx3,marginTop:4,display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{fontWeight:600}}>{isA?"You (Admin)":"User"}</span>
+                  <span>\u00b7</span>
+                  <span>{tA(msg.date)}</span>
+                </div>
+              </div>
+            );})}
+          </div>
+          {/* Quick response chips */}
+          {tk.status!=="closed"&&tk.status!=="resolved"&&<div style={{padding:"10px 20px",borderTop:`1px solid ${C.bd}30`,display:"flex",gap:6,flexWrap:"wrap"}}>
+            {["We're looking into this","Your issue has been escalated","Could you provide more details?","This should now be resolved","We apologize for the inconvenience"].map(q=>(
+              <span key={q} onClick={()=>setReply(q)} style={{padding:"4px 12px",borderRadius:14,fontSize:11,fontWeight:600,color:C.tx3,background:C.bg3,cursor:"pointer",border:`1px solid ${C.bd}40`,transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=C.bd;e.currentTarget.style.color=C.tx;}} onMouseLeave={e=>{e.currentTarget.style.background=C.bg3;e.currentTarget.style.color=C.tx3;}}>{q}</span>
+            ))}
+          </div>}
+          {/* Reply bar */}
+          {tk.status!=="closed"&&tk.status!=="resolved"&&<div style={{padding:"14px 20px",borderTop:`1px solid ${C.bd}`,display:"flex",gap:10,alignItems:"flex-end",background:C.bg2+"80"}}>
+            <textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder="Type admin reply..." rows={2} style={{...iS,flex:1,resize:"none",minHeight:42,fontFamily:"'Inter',sans-serif"}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.ctrlKey){e.preventDefault();doReply();}}}/>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <select value={replyStatus} onChange={e=>setReplyStatus(e.target.value)} style={{...iS,padding:"6px 10px",fontSize:12,width:120}}>
+                <option value="pending">\u23F3 Pending</option>
+                <option value="in-progress">\u{1F504} In Progress</option>
+                <option value="resolved">\u2705 Resolved</option>
+              </select>
+              <button onClick={doReply} style={{...bP,fontSize:12,padding:"8px 16px",display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"linear-gradient(135deg,#4361EE,#5B6CF0)",boxShadow:"0 2px 8px #4361EE30"}}>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Send
+              </button>
+            </div>
+          </div>}
+          {(tk.status==="closed"||tk.status==="resolved")&&<div style={{padding:"14px 20px",borderTop:`1px solid ${C.bd}`,textAlign:"center",fontSize:13,color:C.tx3}}>This ticket has been {tk.status}.</div>}
+        </div>
+      </div>);
+    }
+
+    // LIST VIEW
+    return(<div style={{animation:"fadeIn .3s ease"}}>
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontSize:24,fontWeight:800,marginBottom:4}}>Support Tickets</h2>
+          <p style={{color:C.tx3,fontSize:13}}>{tickets.length} total \u00b7 {openCt+pendCt} require attention</p>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:16,background:"#10B98112",border:"1px solid #10B98120",fontSize:11,fontWeight:600,color:C.gn}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:C.gn,boxShadow:"0 0 6px #10B98180"}}/>Auto-refresh
+          </span>
+          <button onClick={loadAll} style={{...bP,background:C.bg3,color:C.tx2,fontSize:12,padding:"8px 14px",display:"flex",alignItems:"center",gap:5}}>
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Metrics */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
+        {[{l:"Open",v:openCt,c:C.am,bg:"#F59E0B10"},{l:"In Progress",v:pendCt,c:C.pr,bg:"#4361EE10"},{l:"Resolved",v:resCt,c:C.gn,bg:"#10B98110"},{l:"Urgent",v:urgentCt,c:C.rd,bg:"#EF444410"}].map(m=>(
+          <div key={m.l} style={{...card,padding:"16px 18px",borderLeft:`3px solid ${m.c}`,background:m.bg}}>
+            <div style={{fontSize:22,fontWeight:800,color:m.c,marginBottom:2}}>{m.v}</div>
+            <div style={{fontSize:12,color:C.tx3}}>{m.l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search + Filters + Sort */}
+      <div style={{...card,marginBottom:0}}>
+        <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.bd}30`,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:200,position:"relative"}}>
+            <svg width="16" height="16" fill="none" stroke={C.tx3} strokeWidth="2" viewBox="0 0 24 24" style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={tktSearch} onChange={e=>setTktSearch(e.target.value)} placeholder="Search by subject, user, email, ID..." style={{...iS,paddingLeft:38,fontSize:13}}/>
+          </div>
+          <select value={tktSort} onChange={e=>setTktSort(e.target.value)} style={{...iS,width:140,fontSize:12,cursor:"pointer"}}>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="priority">By Priority</option>
+          </select>
+        </div>
+        <div style={{padding:"10px 20px",borderBottom:`1px solid ${C.bd}30`,display:"flex",gap:4,flexWrap:"wrap"}}>
+          {["all","open","pending","in-progress","resolved","closed"].map(f=>(
+            <button key={f} onClick={()=>setTktFilter(f)} style={{padding:"5px 14px",borderRadius:14,border:`1px solid ${tktFilter===f?C.pr:C.bd}`,background:tktFilter===f?C.pr:C.bg2,color:tktFilter===f?"#fff":C.tx3,fontSize:11,fontWeight:600,cursor:"pointer",transition:"all .15s"}} onMouseEnter={e=>{if(tktFilter!==f)e.currentTarget.style.borderColor=C.pr+"60";}} onMouseLeave={e=>{if(tktFilter!==f)e.currentTarget.style.borderColor=C.bd;}}>
+              {f==="all"?"All ("+tickets.length+")":f.charAt(0).toUpperCase()+f.slice(1)+" ("+tickets.filter(t=>t.status===f).length+")"}
+            </button>
+          ))}
+        </div>
+
+        {/* Ticket rows */}
+        {filtered.length===0?
+          <div style={{padding:"48px 24px",textAlign:"center"}}>
+            <svg width="48" height="48" fill="none" stroke={C.bd2} strokeWidth="1.5" strokeLinecap="round" viewBox="0 0 24 24" style={{margin:"0 auto 12px",display:"block"}}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z"/></svg>
+            <div style={{fontSize:14,fontWeight:600,color:C.tx2}}>No tickets match your filters</div>
+            <div style={{fontSize:12,color:C.tx3,marginTop:4}}>Try adjusting your search or filter criteria</div>
+          </div>:
+          filtered.map(tk=>{
+            const msgs=(tk.messages||[]).length;
+            const lastMsg=tk.messages&&tk.messages.length>0?tk.messages[tk.messages.length-1]:null;
+            const waitingOnAdmin=lastMsg&&lastMsg.from==="user"&&tk.status!=="closed"&&tk.status!=="resolved";
+            const isUrgent=(tk.category==="deposit"||tk.category==="withdrawal")&&(tk.status==="open"||tk.status==="pending");
+            return(
+              <div key={tk.id} onClick={()=>{setSelTicket(tk);setReply("");setReplyStatus(tk.status==="open"?"pending":tk.status);}} style={{padding:"14px 20px",borderBottom:`1px solid ${C.bd}20`,cursor:"pointer",display:"flex",gap:14,alignItems:"flex-start",transition:"all .15s"}} onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                {/* Category icon */}
+                <div style={{width:38,height:38,borderRadius:10,background:catBg[tk.category]||C.bg3,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{catIco[tk.category]||"\u{1F4AC}"}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:4}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                      <span style={{fontSize:14,fontWeight:600,color:C.tx,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{tk.subject}</span>
+                      {waitingOnAdmin&&<span style={{padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:"#EF444418",color:C.rd,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0}}>Needs Reply</span>}
+                      {isUrgent&&<span style={{padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:"#F59E0B18",color:C.am,textTransform:"uppercase",whiteSpace:"nowrap",flexShrink:0}}>Urgent</span>}
+                    </div>
+                    <span style={{padding:"3px 10px",borderRadius:6,fontSize:10,fontWeight:700,background:statusBg[tk.status]||C.bg3,color:statusCol[tk.status]||C.tx3,textTransform:"uppercase",letterSpacing:.3,whiteSpace:"nowrap",flexShrink:0}}>{tk.status}</span>
+                  </div>
+                  <div style={{fontSize:12,color:C.tx3,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:600,color:C.tx2}}>{tk.userName||"Unknown"}</span>
+                    <span>\u00b7</span>
+                    <span>{tk.userEmail||""}</span>
+                    <span>\u00b7</span>
+                    <span>#{tk.id}</span>
+                    <span>\u00b7</span>
+                    <span style={{display:"flex",alignItems:"center",gap:3}}>
+                      <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z"/></svg>{msgs}
+                    </span>
+                    <span>\u00b7</span>
+                    <span>{tA(tk.created_at||tk.date)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>);
+  };
+
+  // CRYPTO DEPOSITS PAGE
+  const CryptoPage=()=>(
+    <div style={{animation:"fadeIn .3s ease"}}>
+      <h2 style={{fontSize:24,fontWeight:800,marginBottom:4}}>Crypto Deposits</h2>
+      <p style={{color:C.tx3,fontSize:13,marginBottom:24}}>{cryptoDeps.length} total</p>
+      <div style={card}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.bd}`}}>
+            {["ID","User","Coin","Network","Amount","Address","Status","Date"].map(h=><th key={h} style={{padding:"10px 14px",fontWeight:600,color:C.tx3,fontSize:12,textAlign:"left"}}>{h}</th>)}
+          </tr></thead>
+          <tbody>{cryptoDeps.map(d=>(
+            <tr key={d.id} style={{borderBottom:`1px solid ${C.bd}15`}}>
+              <td style={{padding:"8px 14px",fontWeight:600}}>#{d.id}</td>
+              <td style={{padding:"8px 14px"}}><div style={{fontSize:12}}>{d.full_name}</div><div style={{fontSize:11,color:C.tx3}}>{d.email}</div></td>
+              <td style={{padding:"8px 14px",fontWeight:700}}>{d.coin}</td>
+              <td style={{padding:"8px 14px"}}>{d.network}</td>
+              <td style={{padding:"8px 14px",fontWeight:600}}>{d.amount}</td>
+              <td style={{padding:"8px 14px",fontSize:11,color:C.tx3,fontFamily:"monospace"}}>{d.address?d.address.slice(0,16)+"...":""}</td>
+              <td style={{padding:"8px 14px"}}><span style={{padding:"3px 8px",borderRadius:5,fontSize:10,fontWeight:700,background:d.status==="completed"?C.gnL:d.status==="confirming"?C.prL:C.amL,color:d.status==="completed"?C.gn:d.status==="confirming"?C.pr:C.am}}>{d.status}</span></td>
+              <td style={{padding:"8px 14px",fontSize:12,color:C.tx3}}>{tA(d.created_at)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // SETTINGS PAGE
+  const SettingsPage=()=>{
+    const saveSetting=async(k,v)=>{try{await API("/admin/settings",{method:"POST",body:JSON.stringify({key:k,value:v})});sT("Setting saved!");loadAll();}catch(e){sT(e.message,"err");}};
+    return(<div style={{animation:"fadeIn .3s ease"}}>
+      <h2 style={{fontSize:24,fontWeight:800,marginBottom:4}}>Platform Settings</h2>
+      <p style={{color:C.tx3,fontSize:13,marginBottom:24}}>Configure platform parameters</p>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        {[{key:"xaf_rate",label:"XAF Exchange Rate (per $1 USD)",val:settings.xafRate||"530"},{key:"min_deposit",label:"Min Deposit (XAF)",val:settings.minDeposit||"100"},{key:"min_withdraw",label:"Min Withdrawal (XAF)",val:settings.minWithdraw||"500"},{key:"maintenance",label:"Maintenance Mode",val:settings.maintenance||"false"},{key:"announcement",label:"Platform Announcement",val:settings.announcement||""}].map(s=>(
+          <div key={s.key} style={{...card,padding:20}}>
+            <label style={{fontSize:12,fontWeight:600,color:C.tx2,marginBottom:8,display:"block"}}>{s.label}</label>
+            <div style={{display:"flex",gap:8}}>
+              <input defaultValue={s.val} id={"set_"+s.key} style={{...iS,flex:1}}/>
+              <button onClick={()=>saveSetting(s.key,document.getElementById("set_"+s.key).value)} style={{...bP,padding:"8px 16px",fontSize:12}}>Save</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{...card,padding:20,marginTop:20}}>
+        <h3 style={{fontSize:15,fontWeight:700,marginBottom:12}}>Custom Setting</h3>
+        <div style={{display:"flex",gap:8}}>
+          <input value={settingKey} onChange={e=>setSettingKey(e.target.value)} placeholder="Key" style={{...iS,flex:1}}/>
+          <input value={settingVal} onChange={e=>setSettingVal(e.target.value)} placeholder="Value" style={{...iS,flex:2}}/>
+          <button onClick={()=>{if(settingKey)saveSetting(settingKey,settingVal);setSettingKey("");setSettingVal("");}} style={{...bP,fontSize:12}}>Save</button>
+        </div>
+      </div>
+    </div>);
+  };
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh"}}>
+      <Sidebar/>
+      {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:999,padding:"12px 20px",borderRadius:10,background:toast.t==="ok"?"#065F46":"#991B1B",color:"#fff",fontSize:13,fontWeight:600,boxShadow:"0 8px 24px rgba(0,0,0,.3)"}}>{toast.m}</div>}
+      <div style={{marginLeft:240,padding:"24px 32px"}}>
+        {pg==="dashboard"&&<DashPage/>}
+        {pg==="users"&&<UsersPage/>}
+        {pg==="transactions"&&<TxPage/>}
+        {pg==="tickets"&&<TicketsPage/>}
+        {pg==="crypto"&&<CryptoPage/>}
+        {pg==="settings"&&<SettingsPage/>}
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<AdminApp/>);
+</script>
+
+<!-- Promo Banner Management -->
+<div id="promo-section" style="background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid #E5E7EB;">
+  <h3 style="font-size:18px;font-weight:700;margin-bottom:16px;">Promo Banner</h3>
+  <p style="font-size:13px;color:#6B7280;margin-bottom:12px;">This text scrolls on the dashboard ticker. Visible to all users.</p>
+  <textarea id="promo-text" rows="3" style="width:100%;padding:12px;border-radius:8px;border:1px solid #D1D5DB;font-family:Inter,sans-serif;font-size:14px;resize:vertical;box-sizing:border-box;" placeholder="Enter promotional text..."></textarea>
+  <div style="display:flex;gap:10px;margin-top:12px;">
+    <button onclick="savePromo()" style="padding:10px 24px;border-radius:8px;border:none;background:#4361EE;color:#fff;font-weight:600;cursor:pointer;">Update Promo</button>
+    <button onclick="loadPromo()" style="padding:10px 24px;border-radius:8px;border:1px solid #D1D5DB;background:#fff;color:#333;font-weight:600;cursor:pointer;">Reload</button>
+  </div>
+  <div id="promo-status" style="margin-top:8px;font-size:13px;color:#16A34A;display:none;"></div>
+</div>
+<script>
+function loadPromo(){
+  fetch('/api/promo').then(r=>r.json()).then(d=>{
+    document.getElementById('promo-text').value=d.promo||'';
+  }).catch(()=>{});
+}
+function savePromo(){
+  const text=document.getElementById('promo-text').value;
+  const token=localStorage.getItem('cxc_admin_token');
+  fetch('/api/admin/promo',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({text:text})})
+  .then(r=>r.json()).then(d=>{
+    if(d.success){
+      const st=document.getElementById('promo-status');
+      st.textContent='Promo updated!';st.style.display='block';
+      setTimeout(()=>st.style.display='none',3000);
+    }
+  }).catch(e=>alert('Failed: '+e.message));
+}
+loadPromo();
+</script>
+</body>
+</html>
